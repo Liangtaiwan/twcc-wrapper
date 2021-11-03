@@ -1,0 +1,95 @@
+#!/usr/bin/python3
+import argparse
+import sys
+import os
+import grp
+import subprocess
+import getpass
+from terminaltables import AsciiTable
+from urllib.parse import quote
+from termcolor import colored
+
+import config
+from utils import *
+
+
+def show_queue():
+    user = getpass.getuser()
+    gid = max(os.getgroups())
+    gr_mem = grp.getgrgid(gid).gr_mem
+
+    cmd = ['sprio', '-who', '%F,%A']
+    res = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE).stdout
+    res = [x.decode().strip().split(',') for x in res]
+
+    full_prio = int(res[0][0])
+    full_age_prio = int(res[0][1]) / full_prio
+
+    cmd = ['sprio', '-ho', '%i,%u,%r,%Y,%F,%A,%Q']
+    res = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE).stdout
+    res = [x.decode().strip().split(',') for x in res]
+
+    titles = ['JobID', 'user', 'MAXTIME', 'Priority', 'Fairshare', 'Age', 'Age factor']
+
+    rows = []
+    any_spot = False
+
+    for job in res:
+        jobid = job[0]
+        username = job[1]
+        partition = job[2]
+        prio = int(job[3]) / full_prio
+        fs_prio = int(job[4]) / full_prio
+        age_prio = int(job[5]) / full_prio
+        qos_prio = int(job[6]) / full_prio
+        age = age_prio / full_age_prio
+
+        prio -= qos_prio
+        if qos_prio == 0:  # Spot
+            jobid = colored('S', 'yellow') + jobid
+            if not any_spot and len(rows) > 0:
+                rows.append([''] * 7)
+            any_spot = True
+
+        if len(rows) > 0 and jobid == rows[-1][0]:  # Merge the same jobid
+            rows[-1][2] += ',' + partition
+            continue
+
+        if age >= 1:
+            age = f'>= {config.age_factor_max_seconds // 86400} day'
+        else:
+            secs = int(age * config.age_factor_max_seconds)
+            mins = secs // 60
+            secs %= 60
+            hrs = mins // 60
+            mins %= 60
+            age = f'{hrs:02d}:{mins:02d}:{secs:02d}'
+
+        mygroup = (username == user or username in gr_mem)
+        prio = f'{prio:.8f}'
+
+        if mygroup:
+            username = colored(username, 'yellow', attrs=['bold'])
+            prio = colored(prio, 'yellow', attrs=['bold'])
+        else:
+            prio = colored(prio, 'white', attrs=['bold'])
+
+        row = [jobid, username, partition, prio, f'{fs_prio:.8f}', age, f'{age_prio:.8f}']
+        rows.append(row)
+
+    table = AsciiTable([titles] + rows)
+    for i in range(len(titles)):
+        table.justify_columns[i] = 'left'
+    table.justify_columns[0] = 'right'
+    print(table.table)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        prog='hqueue',
+        description='Show the priorities of pending jobs in the queue.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    show_queue()
+

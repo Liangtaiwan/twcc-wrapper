@@ -1,0 +1,133 @@
+#!/usr/bin/python3
+import argparse
+import sys
+import os
+import re
+import subprocess
+import getpass
+from pathlib import Path
+
+
+import slurm
+import config
+from utils import *
+
+def run_job(args):
+    srun_params = []
+    srun_params.extend(['-c', str(args.cpu)])
+    srun_params.extend(['--account', os.getenv("TWCC_ACCOUNT")])
+    if args.time is not None:
+        srun_params.extend(['-t', args.time])
+    if args.mem is not None:
+        srun_params.extend([f'--mem={int(args.mem * 1024)}'])
+    if args.gpu > 0:
+        srun_params.extend([f'--gres=gpu:{args.gpu}'])
+
+    # TODO: partitions, change according to time
+    srun_params.extend(['-p', args.part])
+
+    #TODO: add --signal
+
+    job_name = args.job_name if args.job_name is not None else ' '.join(args.cmd)
+    srun_params.extend(['-J', job_name])
+
+    # CMD
+    real_cmd = args.cmd
+    if args.singularity is not None:
+        current_path = os.path.abspath(os.getcwd())
+        singularity = ["singularity", "run" ,"--nv" , os.path.join(current_path, args.singularity)]
+        real_cmd = singularity + real_cmd
+
+    if args.detach:
+        shellscript = '#!/bin/sh\n' + ' '.join(['/usr/bin/srun', '-u', '--mpi=pmix', *real_cmd])
+        # shellscript = '#!/bin/sh\n' + ' '.join(['/usr/bin/srun', '-u', *real_cmd])
+        username = getpass.getuser()
+        output_path = f'/work/{username}/logs/'
+        os.makedirs(output_path, exist_ok=True)
+        proc = subprocess.run(['/usr/bin/sbatch', *srun_params,
+                               '-o', output_path + '%j.out',
+                               # '-e', output_path + '%j.err', # separate stderr
+                               ], input=shellscript.encode())
+    else:
+        srun_params.extend(['--mpi=pmix'])
+        if sys.stdout.isatty():
+            srun_params.append('--pty')
+        srun_params.extend(['-u', '--quit-on-interrupt'])
+        os.execl('/usr/bin/srun', '/usr/bin/srun', *srun_params, *real_cmd)
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        prog='hrun',
+        description='Run computing jobs.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        '-t', dest='time', type=str, default=None,
+        help='Time limit for the job (days-hours), default is 1 day'
+    )
+    parser.add_argument(
+        '-p', dest='part', type=str, default="gp1d", choices=config.partitions,
+        help='Partition specified for the job. '
+              'If not set, the partition will be automatically assigned according to -t flag. '
+              f'Valid partitions: {",".join(config.partitions)}.'
+    )
+    parser.add_argument(
+        '-c', dest='cpu', type=int, default=4,
+        help='Number of CPU cores to request.'
+    )
+    parser.add_argument(
+        '-m', dest='mem', type=float, default=90,
+        help=('Size of RAM (in GB) to request. If not specified, the memory size will be '
+              'automatically decided according to free memory size of available nodes.')
+    )
+    parser.add_argument(
+        '-G', dest='gpu', action='count',
+        help=('Request a GPU. Set multiple times (ex: -GG) to request multiple GPUs. '
+              'If this option is not set but gpu_type (-g) is set, 1 GPU will be requested.'
+              )
+    )
+    parser.add_argument(
+        '-d', dest='detach', default=False, action='store_true',
+        help='Run job in detached (background) mode. Pseudo-tty is not supported in this mode.'
+    )
+    parser.add_argument(
+        '-n', dest='job_name', default=None,
+        help=('The job name which will be shown in the job list (hjob). '
+              'Will be set to the full command (ex: python train.py -lr 0.01) if not specified.')
+    )
+
+    parser.add_argument(
+        '-s', dest='singularity', default=None,
+        help='Run the command with given container.'
+    )
+    parser.add_argument(
+        'cmd',
+        help='The command to run.'
+    )
+    parser.add_argument(
+        'args', nargs=argparse.REMAINDER, metavar=''
+    )
+
+    args = parser.parse_args()
+
+    # Merge cmd and args
+    args.cmd = [args.cmd] + args.args
+    del args.args
+
+    # Check CPU and GPU values
+    if not config.cpu_min <= args.cpu <= config.cpu_max:
+        sys.exit(f'Error: Requested number of CPU ({args.cpu}) is out of range '
+                 f'({config.cpu_min}-{config.cpu_max}).')
+    if args.mem is not None and not config.mem_min <= args.mem <= config.mem_max:
+        sys.exit(f'Error: Requested memory size ({args.mem:.2f} GB) is out of range '
+                 f'({config.mem_min}-{config.mem_max}).')
+
+    # Check GPU number and types
+    if args.gpu is None:
+        args.gpu = 1 if args.gpu_type is not None else 0
+    if args.gpu > 0:
+        if args.gpu > config.gpu_max:
+            sys.exit(f'Error: Requested number of GPU ({args.gpu}) is out of range '
+                     f'({0}-{config.gpu_max}).')
+
+    run_job(args)

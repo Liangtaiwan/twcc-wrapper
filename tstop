@@ -1,0 +1,30 @@
+#!/usr/bin/python3
+import argparse
+import os
+import subprocess
+
+from utils import *
+
+
+def stop_job(args):
+    os.execl('/usr/bin/scancel',
+             '/usr/bin/scancel', '-s', args.signal, args.jobid)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        prog='hstop',
+        description='Stop (kill) a running job.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        '-s', dest='signal', default='SIGKILL',
+        help='signal to send to job, default is SIGKILL',
+    )
+    parser.add_argument(
+        'jobid',
+        help='JobID of the job to be stopped.'
+    )
+
+    args = parser.parse_args()
+    stop_job(args)
