@@ -14,6 +14,7 @@ Add the following to your `.bashrc` or `.zshrc`
 export PATH=$PATH:$HOME/.wrapper
 export TWCC_ACCOUNT=<YOUR ACCOUNT ID>
 ```
+You can get your `account id` with the command `wallet` on twcc login node.
 
 ## For NTU SPML Lab
 基本上使用方法跟戰艦ㄧ樣，`hrun`改為`trun`，但無其他`hxxx`系列功能（戰艦allocate info為我們自己寫的service，國網不支援）
