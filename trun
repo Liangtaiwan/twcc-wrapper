@@ -33,15 +33,15 @@ def run_job(args):
 
     # CMD
     real_cmd = args.cmd
+    username = getpass.getuser()
     if args.singularity is not None:
         current_path = os.path.abspath(os.getcwd())
-        singularity = ["singularity", "run" ,"--nv" , os.path.join(current_path, args.singularity)]
+        singularity = ["singularity", "run" ,"--nv" ,"--bind",  f"/work/{username}:/work/{username}", os.path.join(current_path, args.singularity)]
         real_cmd = singularity + real_cmd
 
     if args.detach:
         shellscript = '#!/bin/sh\n' + ' '.join(['/usr/bin/srun', '-u', '--mpi=pmix', *real_cmd])
         # shellscript = '#!/bin/sh\n' + ' '.join(['/usr/bin/srun', '-u', *real_cmd])
-        username = getpass.getuser()
         output_path = f'/work/{username}/logs/'
         os.makedirs(output_path, exist_ok=True)
         proc = subprocess.run(['/usr/bin/sbatch', *srun_params,
@@ -83,7 +83,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '-G', dest='gpu', action='count',
         help=('Request a GPU. Set multiple times (ex: -GG) to request multiple GPUs. '
-              'If this option is not set but gpu_type (-g) is set, 1 GPU will be requested.'
               )
     )
     parser.add_argument(
@@ -124,7 +123,7 @@ if __name__ == '__main__':
 
     # Check GPU number and types
     if args.gpu is None:
-        args.gpu = 1 if args.gpu_type is not None else 0
+        args.gpu =  0
     if args.gpu > 0:
         if args.gpu > config.gpu_max:
             sys.exit(f'Error: Requested number of GPU ({args.gpu}) is out of range '

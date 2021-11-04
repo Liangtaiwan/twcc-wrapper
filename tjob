@@ -1,0 +1,70 @@
+#!/usr/bin/python3
+import argparse
+import sys
+import os
+import grp
+import subprocess
+import getpass
+from terminaltables import AsciiTable
+from urllib.parse import quote
+from termcolor import colored
+
+import config
+from utils import *
+
+
+def show_jobs():
+    user = getpass.getuser()
+    gid = max(os.getgroups())
+    gr_mem = grp.getgrgid(gid).gr_mem
+    
+    if args.long:
+        cmd = ['squeue', '-hu', user, '--format=%.18i,%.9P,%j,%.8u,%.8T,%.10M,%.9l,%.6D %R']
+    else:
+        cmd = ['squeue', '-hu', user, '--format=%.18i,%.9P,%30j,%.8u,%.8T,%.10M,%.9l,%.6D %R']
+    res = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE).stdout
+    res = [x.decode().strip().split(",") for x in res]
+    if args.number:
+        print(len(res))
+        return 
+
+    titles = ['JobID', 'Partition', 'Name', 'State', 'Time', 'Time Limit']
+
+    rows = []
+    any_spot = False
+    print()
+    for job in res:
+        jobid = job[0]
+        partition = job[1]
+        name = job[2]
+        state = job[4]
+        time = job[5]
+        time_limit = job[6]
+        row = [jobid, partition, name, state, time, time_limit]
+        rows.append(row)
+
+    table = AsciiTable([titles] + rows)
+    for i in range(len(titles)):
+        table.justify_columns[i] = 'left'
+    table.justify_columns[0] = 'right'
+    print(table.table)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        prog='hjob',
+        description='Show the jobs.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        '-l',  dest='long', default=False, action='store_true',
+        help='Show full job name.'
+    )
+    parser.add_argument(
+        '-n',  dest='number', default=False, action='store_true',
+        help='Show how many jobs is running.'
+    )
+    args = parser.parse_args()
+
+    show_jobs()
+
